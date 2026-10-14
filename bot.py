@@ -16,6 +16,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# --- Startup Hook: Clear leftover webhook ---
+async def post_init(application):
+    try:
+        await application.bot.delete_webhook(drop_pending_updates=True)
+        logger.info("Webhook cleared. Starting polling mode.")
+    except Exception as e:
+        logger.error(f"Failed to clear webhook: {e}", exc_info=True)
+
+
 # --- Command Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -86,7 +95,12 @@ def main():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
-    application = ApplicationBuilder().token(TOKEN).build()
+    application = (
+        ApplicationBuilder()
+        .token(TOKEN)
+        .post_init(post_init)
+        .build()
+    )
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("random", random_recipe))
