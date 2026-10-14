@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
@@ -12,17 +13,20 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+logger = logging.getLogger(__name__)
+
 
 # --- Command Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Welcome! I can give you dish ideas and cooking steps.\n"
-        "Try `/random` for a surprise dish, or send an ingredient like `/chicken`."
+        "👋 Welcome! I can give you dish ideas and cooking steps.\n\n"
+        "Try /random for a surprise dish, or send an ingredient like /chicken."
     )
+
 
 async def random_recipe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        response = requests.get(MEALDB_URL + "random.php")
+        response = requests.get(MEALDB_URL + "random.php", timeout=10)
         data = response.json()
         meal = data["meals"][0]
 
@@ -39,17 +43,18 @@ async def random_recipe(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
     except Exception as e:
-        logging.error(f"Error fetching recipe: {e}")
+        logger.error(f"Error fetching recipe: {e}", exc_info=True)
         await update.message.reply_text("Sorry, I couldn't fetch a recipe. Try again later.")
+
 
 async def search_by_ingredient(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("Please specify an ingredient. Example: `/chicken`")
+        await update.message.reply_text("Please specify an ingredient. Example: /chicken")
         return
 
     ingredient = context.args[0]
     try:
-        response = requests.get(MEALDB_URL + f"filter.php?i={ingredient}")
+        response = requests.get(MEALDB_URL + f"filter.php?i={ingredient}", timeout=10)
         data = response.json()
 
         if not data.get("meals"):
@@ -58,20 +63,38 @@ async def search_by_ingredient(update: Update, context: ContextTypes.DEFAULT_TYP
 
         dishes = [meal["strMeal"] for meal in data["meals"][:5]]
         reply = f"Found some ideas with *{ingredient}*:\n" + "\n".join([f"• {d}" for d in dishes])
-        reply += "\n\nUse `/random` for a full recipe with instructions."
+        reply += "\n\nUse /random for a full recipe with instructions."
 
         await update.message.reply_text(reply, parse_mode="Markdown")
     except Exception as e:
-        logging.error(f"Error searching: {e}")
+        logger.error(f"Error searching: {e}", exc_info=True)
         await update.message.reply_text("Something went wrong. Please try again.")
 
-# --- Build and Run Bot (Polling) ---
-if __name__ == "__main__":
+
+# --- Main ---
+def main():
+    if not TOKEN:
+        logger.error("BOT_TOKEN environment variable is not set.")
+        raise SystemExit(1)
+
+    # Explicit event loop for Python 3.14+ compatibility
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            raise RuntimeError("Loop is closed")
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
     application = ApplicationBuilder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("random", random_recipe))
     application.add_handler(CommandHandler(["chicken", "beef", "rice", "pasta"], search_by_ingredient))
 
-    logging.info("Bot started with polling...")
+    logger.info("Bot started with polling...")
     application.run_polling(drop_pending_updates=True)
+
+
+if __name__ == "__main__":
+    main()
