@@ -6,7 +6,6 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 # --- Configuration ---
 TOKEN = os.environ.get("BOT_TOKEN")
-PORT = int(os.environ.get("PORT", 10000))
 MEALDB_URL = "https://www.themealdb.com/api/json/v1/1/"
 
 logging.basicConfig(
@@ -66,34 +65,13 @@ async def search_by_ingredient(update: Update, context: ContextTypes.DEFAULT_TYP
         logging.error(f"Error searching: {e}")
         await update.message.reply_text("Something went wrong. Please try again.")
 
-# --- Build Telegram Application ---
-application = ApplicationBuilder().token(TOKEN).build()
-
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("random", random_recipe))
-application.add_handler(CommandHandler(["chicken", "beef", "rice", "pasta"], search_by_ingredient))
-
-# --- Run with built-in webhook server ---
+# --- Build and Run Bot (Polling) ---
 if __name__ == "__main__":
-    # Render sets RENDER_EXTERNAL_URL automatically for Web Services.
-    # Fall back to RENDER_EXTERNAL_HOSTNAME if needed.
-    external_url = os.environ.get("RENDER_EXTERNAL_URL")
-    if not external_url:
-        hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
-        if hostname:
-            external_url = f"https://{hostname}"
+    application = ApplicationBuilder().token(TOKEN).build()
 
-    if not external_url:
-        logging.error("Could not determine external URL. Make sure this is a Web Service on Render.")
-        raise SystemExit(1)
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("random", random_recipe))
+    application.add_handler(CommandHandler(["chicken", "beef", "rice", "pasta"], search_by_ingredient))
 
-    webhook_url = f"{external_url}/webhook"
-    logging.info(f"Starting webhook on {webhook_url}")
-
-    application.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path="webhook",
-        webhook_url=webhook_url,
-        drop_pending_updates=True,
-    )
+    logging.info("Bot started with polling...")
+    application.run_polling(drop_pending_updates=True)
