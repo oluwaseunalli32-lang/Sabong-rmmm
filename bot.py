@@ -3,15 +3,9 @@ import logging
 import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from telegram.request import HTTPXRequest
-import uvicorn
-from starlette.applications import Starlette
-from starlette.responses import PlainTextResponse
-from starlette.routing import Route
 
 # --- Configuration ---
 TOKEN = os.environ.get("BOT_TOKEN")
-RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL")  # Render sets this automatically
 PORT = int(os.environ.get("PORT", 10000))
 MEALDB_URL = "https://www.themealdb.com/api/json/v1/1/"
 
@@ -72,21 +66,6 @@ async def search_by_ingredient(update: Update, context: ContextTypes.DEFAULT_TYP
         logging.error(f"Error searching: {e}")
         await update.message.reply_text("Something went wrong. Please try again.")
 
-# --- Webhook Application ---
-async def healthcheck(request):
-    return PlainTextResponse("OK")
-
-async def webhook(request):
-    """Handle incoming Telegram updates."""
-    try:
-        data = await request.json()
-        update = Update.de_json(data, application.bot)
-        await application.process_update(update)
-        return PlainTextResponse("OK")
-    except Exception as e:
-        logging.error(f"Webhook error: {e}")
-        return PlainTextResponse("Error", status_code=500)
-
 # --- Build Telegram Application ---
 application = ApplicationBuilder().token(TOKEN).build()
 
@@ -94,26 +73,27 @@ application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("random", random_recipe))
 application.add_handler(CommandHandler(["chicken", "beef", "rice", "pasta"], search_by_ingredient))
 
-# --- Starlette App (for Render Web Service) ---
-app = Starlette(routes=[
-    Route("/", healthcheck),
-    Route("/healthcheck", healthcheck),
-    Route("/webhook", webhook, methods=["POST"]),
-])
-
-# --- Startup: Set Telegram Webhook ---
-@app.on_event("startup")
-async def on_startup():
-    await application.initialize()
-    await application.start()
-    webhook_url = f"{RENDER_EXTERNAL_URL}/webhook"
-    await application.bot.set_webhook(url=webhook_url)
-    logging.info(f"Webhook set to: {webhook_url}")
-
-@app.on_event("shutdown")
-async def on_shutdown():
-    await application.stop()
-    await application.shutdown()
-
+# --- Run with built-in webhook server ---
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    # Render sets RENDER_EXTERNAL_URL automatically for Web Services.
+    # Fall back to RENDER_EXTERNAL_HOSTNAME if needed.
+    external_url = os.environ.get("RENDER_EXTERNAL_URL")
+    if not external_url:
+        hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+        if hostname:
+            external_url = f"https://{hostname}"
+
+    if not external_url:
+        logging.error("Could not determine external URL. Make sure this is a Web Service on Render.")
+        raise SystemExit(1)
+
+    webhook_url = f"{external_url}/webhook"
+    logging.info(f"Starting webhook on {webhook_url}")
+
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path="webhook",
+        webhook_url=webhook_url,
+        drop_pending_updates=True,
+    )
