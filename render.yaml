@@ -1,11 +1,10 @@
 services:
-  - type: web
+  - type: worker
     name: dish-idea-bot
     runtime: python
-    plan: free
+    plan: starter
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
-    healthCheckPath: /healthcheck
     envVars:
       - key: BOT_TOKEN
         sync: false
